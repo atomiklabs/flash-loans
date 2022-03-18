@@ -12,6 +12,15 @@ pub enum ContractError {
     #[error("Custom Error val: {val:?}")]
     CustomError{val: String},
 
+    #[error("Not enough funds to cover fee")]
+    NotEnoughFundsToCoverFee,
+
+    #[error("Transfer amount is lower than minimal amount of {amount} {denom} required")]
+    TransferAmountLowerThanRequired {
+        amount: u128,
+        denom: String,
+    },
+
     // Add any other custom errors you like here.
     // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
 }
