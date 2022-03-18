@@ -1,7 +1,7 @@
 [package]
-name = "{{project-name}}"
+name = "cw-template"
 version = "0.1.0"
-authors = ["{{authors}}"]
+authors = ["tko"]
 edition = "2018"
 
 exclude = [
