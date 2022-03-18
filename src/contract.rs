@@ -1,3 +1,16 @@
+///
+/// This is a minimal example enabling the following interaction:
+/// 
+/// 1. [Contract A: InitiateTransfer] A user initiates a transfer of their assets.
+/// 2. [Contract B: LockFunds] The funds need to be locked within the contract.
+///    Here it's just dummy lock of already sent coins, but the real example covers also CW20, and CW721.
+///    That's why I created a call to another smart contract.
+/// 3. [Contract A: reply] A reply to the LockFunds submessage needs to call another contract.
+/// 4. [Contract C: BroadcastTransfer] This is an example of the another contract, which charges a fee in native coins
+/// 
+/// Question:
+/// How can I access `info.funds` within the `reply` handler (step 3.), so I could include the fee while calling broadcast transfer handler (step 4.)?
+///
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
