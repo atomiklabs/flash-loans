@@ -58,7 +58,8 @@ mod tests {
                 "test",
                 None,
             )
-            .unwrap();
+            .unwrap()
+            .to_string();
 
         let cw_bridge_id = app.store_code(cw_bridge_contract());
         let msg = InstantiateMsg { cw_gateway_contract_addr };
@@ -80,18 +81,36 @@ mod tests {
 
     mod transfers {
         use super::*;
-        use crate::msg::ExecuteMsg;
+        use crate::{msg::ExecuteMsg, state::State};
 
         #[test]
         fn initiate_transfer() {
-            let (mut app, cw_template_contract) = proper_instantiate();
+            let (mut app, cw_bridge_contract) = proper_instantiate();
 
             let msg = ExecuteMsg::InitiateTransfer {};
             let funds = vec![
                 coin(1_000_000, "uluna"), // transfer subject
             ];
-            let cosmos_msg = cw_template_contract.call(msg, Some(funds)).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            let cosmos_msg = cw_bridge_contract.call(msg, Some(funds)).unwrap();
+            let r = app.execute(Addr::unchecked(USER), cosmos_msg);
+
+            println!("YOOO {:?}", r);
+
+            let r = app.wrap().query_all_balances(USER).unwrap();
+            println!("USER coins {:?}", r);
+
+            let r = app.wrap().query_all_balances("Contract #0").unwrap();
+            println!("GATEWAY coins {:?}", r);
+
+            let r = app.wrap().query_all_balances("Contract #1").unwrap();
+            println!("BRIDGE coins {:?}", r);
+
+            let s: State = app
+                .wrap()
+                .query_wasm_smart("Contract #1", &crate::msg::QueryMsg::State)
+                .unwrap();
+
+            println!("BRIDGE state {:?}", s);
         }
     }
 }

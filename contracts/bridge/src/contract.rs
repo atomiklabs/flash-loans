@@ -1,27 +1,27 @@
 ///
 /// This is a minimal example enabling the following interaction:
-/// 
+///
 /// 1. [Contract A: InitiateTransfer] A user initiates a transfer of their assets.
 /// 2. [Contract B: LockFunds] The funds need to be locked within the contract.
 ///    Here it's just dummy lock of already sent coins, but the real example covers also CW20, and CW721.
 ///    That's why I created a call to another smart contract.
 /// 3. [Contract A: reply] A reply to the LockFunds submessage needs to call another contract.
 /// 4. [Contract C: BroadcastTransfer] This is an example of the another contract, which charges a fee in native coins
-/// 
+///
 /// Question:
 /// How can I access `info.funds` within the `reply` handler (step 3.), so I could include the fee while calling broadcast transfer handler (step 4.)?
 ///
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coin, has_coins, to_binary, Coin, CosmosMsg, DepsMut, Env, MessageInfo, Reply,
-    Response, StdResult, SubMsg, WasmMsg, Binary, Deps,
+    coin, has_coins, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Reply,
+    Response, StdResult, SubMsg, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::STATE;
+use crate::state::{State, STATE};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw-bridge";
@@ -36,16 +36,17 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let _ = STATE.update(deps.storage, |state| -> StdResult<_> {
-        let mut state = state;
+    let cw_gateway_contract_addr = deps.api.addr_validate(&msg.cw_gateway_contract_addr)?;
 
-        state.cw_gateway_contract_addr = msg.cw_gateway_contract_addr;
+    STATE.save(
+        deps.storage,
+        &State {
+            cw_gateway_contract_addr,
+            reentrancy_prevention_flag: false,
+        },
+    )?;
 
-        Ok(state)
-    });
-
-    Ok(Response::new()
-        .add_attribute("method", "instantiate"))
+    Ok(Response::new().add_attribute("method", "instantiate"))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -70,7 +71,7 @@ fn minimal_transfer_requirement() -> Coin {
 /// Some 3rd party system observes the broadcast method response
 /// and picks up transfer data to complete the transfer on another blockchain.
 fn initiate_transfer(
-    _deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
@@ -79,6 +80,13 @@ fn initiate_transfer(
         funds: info.funds,
         msg: to_binary(&ExecuteMsg::LockFunds {})?,
     });
+
+    STATE.update(deps.storage, |mut state: State| -> StdResult<_> {
+        state.reentrancy_prevention_flag = true;
+
+        Ok(state)
+    })?;
+
     Ok(Response::new().add_submessage(SubMsg::reply_on_success(lock_funds_msg, 1)))
 }
 
@@ -96,9 +104,13 @@ fn lock_funds(_deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, 
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(_deps: DepsMut, env: Env, _msg: Reply) -> StdResult<Response> {
+pub fn reply(deps: DepsMut, _env: Env, _msg: Reply) -> Result<Response, ContractError> {
+    return Ok(Response::default());
+    let state = STATE.load(deps.storage)?;
+
     let broadcast_transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
+        contract_addr: state.cw_gateway_contract_addr.to_string(),
+        // funds: vec![coin(990, "uluna")],
         funds: vec![],
         msg: to_binary(&cw_gateway::msg::ExecuteMsg::BroadcastTransfer {})?,
     });
@@ -106,6 +118,7 @@ pub fn reply(_deps: DepsMut, env: Env, _msg: Reply) -> StdResult<Response> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
-    to_binary(&vec![1])
+pub fn query(deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
+    let state = STATE.load(deps.storage)?;
+    to_binary(&state)
 }
