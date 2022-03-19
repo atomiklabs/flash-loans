@@ -1,16 +1,26 @@
 #[cfg(test)]
 mod tests {
-    use crate::helpers::CwTemplateContract;
+    use crate::helpers::CwBridgeContract;
     use crate::msg::InstantiateMsg;
     use cosmwasm_std::{coin, Addr, Coin, Empty, Uint128};
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor};
+    use cw_gateway;
 
-    pub fn contract_template() -> Box<dyn Contract<Empty>> {
+    pub fn cw_bridge_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             crate::contract::execute,
             crate::contract::instantiate,
             crate::contract::query,
         ).with_reply(crate::contract::reply);
+        Box::new(contract)
+    }
+
+    pub fn cw_gateway_contract() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            cw_gateway::contract::execute,
+            cw_gateway::contract::instantiate,
+            cw_gateway::contract::query,
+        );
         Box::new(contract)
     }
 
@@ -34,14 +44,14 @@ mod tests {
         })
     }
 
-    fn proper_instantiate() -> (App, CwTemplateContract) {
+    fn proper_instantiate() -> (App, CwBridgeContract) {
         let mut app = mock_app();
-        let cw_template_id = app.store_code(contract_template());
 
-        let msg = InstantiateMsg { count: 1i32 };
-        let cw_template_contract_addr = app
+        let cw_gateway_id = app.store_code(cw_gateway_contract());
+        let msg = cw_gateway::msg::InstantiateMsg { };
+        let cw_gateway_contract_addr = app
             .instantiate_contract(
-                cw_template_id,
+                cw_gateway_id,
                 Addr::unchecked(ADMIN),
                 &msg,
                 &[],
@@ -50,9 +60,22 @@ mod tests {
             )
             .unwrap();
 
-        let cw_template_contract = CwTemplateContract(cw_template_contract_addr);
+        let cw_bridge_id = app.store_code(cw_bridge_contract());
+        let msg = InstantiateMsg { cw_gateway_contract_addr };
+        let cw_bridge_contract_addr = app
+            .instantiate_contract(
+                cw_bridge_id,
+                Addr::unchecked(ADMIN),
+                &msg,
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
 
-        (app, cw_template_contract)
+        let cw_bridge_contract = CwBridgeContract(cw_bridge_contract_addr);
+
+        (app, cw_bridge_contract)
     }
 
     mod transfers {

@@ -2,7 +2,7 @@ image: cosmwasm/cw-gitpod-base:v0.16
 
 vscode:
   extensions:
-    - rust-lang.rust
+    - matklad.rust-analyzer
 
 tasks:
   - name: Dependencies & Build

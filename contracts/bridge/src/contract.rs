@@ -21,19 +21,28 @@ use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::state::STATE;
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:cw-template";
+const CONTRACT_NAME: &str = "crates.io:cw-bridge";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     _env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    let _ = STATE.update(deps.storage, |state| -> StdResult<_> {
+        let mut state = state;
+
+        state.cw_gateway_contract_addr = msg.cw_gateway_contract_addr;
+
+        Ok(state)
+    });
 
     Ok(Response::new()
         .add_attribute("method", "instantiate"))
@@ -49,12 +58,7 @@ pub fn execute(
     match msg {
         ExecuteMsg::InitiateTransfer {} => initiate_transfer(deps, env, info),
         ExecuteMsg::LockFunds {} => lock_funds(deps, env, info),
-        ExecuteMsg::BroadcastTransfer {} => broadcast_transfer(deps, env, info),
     }
-}
-
-fn transfer_fee() -> Coin {
-    coin(990, "uluna")
 }
 
 fn minimal_transfer_requirement() -> Coin {
@@ -66,7 +70,7 @@ fn minimal_transfer_requirement() -> Coin {
 /// Some 3rd party system observes the broadcast method response
 /// and picks up transfer data to complete the transfer on another blockchain.
 fn initiate_transfer(
-    deps: DepsMut,
+    _deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
@@ -78,7 +82,7 @@ fn initiate_transfer(
     Ok(Response::new().add_submessage(SubMsg::reply_on_success(lock_funds_msg, 1)))
 }
 
-fn lock_funds(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+fn lock_funds(_deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let minimal_transfer = minimal_transfer_requirement();
 
     if !has_coins(&info.funds, &minimal_transfer) {
@@ -91,29 +95,17 @@ fn lock_funds(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, Co
     Ok(Response::default())
 }
 
-fn broadcast_transfer(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, ContractError> {
-    if !has_coins(&info.funds, &transfer_fee()) {
-        return Err(ContractError::NotEnoughFundsToCoverFee);
-    }
-
-    Ok(Response::new().add_attribute("transfer.status", "initiated"))
-}
-
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut, env: Env, _msg: Reply) -> StdResult<Response> {
+pub fn reply(_deps: DepsMut, env: Env, _msg: Reply) -> StdResult<Response> {
     let broadcast_transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         funds: vec![],
-        msg: to_binary(&ExecuteMsg::BroadcastTransfer {})?,
+        msg: to_binary(&cw_gateway::msg::ExecuteMsg::BroadcastTransfer {})?,
     });
     Ok(Response::new().add_message(broadcast_transfer_msg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
     to_binary(&vec![1])
 }
