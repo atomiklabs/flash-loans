@@ -1,3 +1,4 @@
+use crate::msg::StateResponse;
 ///
 /// This is a minimal example enabling the following interaction:
 ///
@@ -14,7 +15,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coin, has_coins, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Reply,
+    has_coins, to_binary, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Reply,
     Response, StdResult, SubMsg, WasmMsg,
 };
 use cw2::set_contract_version;
@@ -64,10 +65,6 @@ pub fn execute(
     }
 }
 
-fn minimal_transfer_requirement() -> Coin {
-    coin(10_000, "uluna") // 0.01 LUNA
-}
-
 /// Allows a user to start a trasaction.
 /// It locks users native coin, and emits an event with the transaction details.
 /// Some 3rd party system observes the broadcast method response
@@ -91,7 +88,7 @@ fn initiate_transfer(
 
     let submsg = SubMsg {
         id: 1,
-        msg:lock_funds_msg,
+        msg: lock_funds_msg,
         reply_on: state.reply_on_mode,
         gas_limit: None,
     };
@@ -99,17 +96,22 @@ fn initiate_transfer(
     Ok(Response::new().add_submessage(submsg))
 }
 
-fn lock_funds(_deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
-    let minimal_transfer = minimal_transfer_requirement();
+fn lock_funds(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+    let State {
+        minimal_transfer_requirement,
+        ..
+    } = STATE.load(deps.storage)?;
 
-    if !has_coins(&info.funds, &minimal_transfer) {
-        return Err(ContractError::TransferAmountLowerThanRequired {
-            amount: minimal_transfer.amount.u128(),
-            denom: minimal_transfer.denom,
-        });
+    if let Some(minimal_transfer) = minimal_transfer_requirement {
+        if !has_coins(&info.funds, &minimal_transfer) {
+            return Err(ContractError::TransferAmountLowerThanRequired {
+                amount: minimal_transfer.amount.u128(),
+                denom: minimal_transfer.denom,
+            });
+        }
     }
 
-    Ok(Response::default())
+    Ok(Response::new().add_attribute("funds.locked", "true"))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -125,17 +127,33 @@ pub fn reply(deps: DepsMut, _env: Env, _msg: Reply) -> Result<Response, Contract
         Ok(state)
     })?;
 
+    let gateway_state: cw_gateway::msg::StateResponse = deps.querier.query_wasm_smart(
+        state.cw_gateway_contract_addr.clone(),
+        &cw_gateway::msg::QueryMsg::State,
+    )?;
+
+    let gateway_broadcast_fee = match gateway_state.state.broadcast_fee {
+        Some(required_fee) => vec![required_fee],
+        _ => vec![],
+    };
+
     let broadcast_transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: state.cw_gateway_contract_addr.to_string(),
-        funds: vec![coin(990, "uluna")],
-        // funds: vec![],
+        funds: gateway_broadcast_fee,
         msg: to_binary(&cw_gateway::msg::ExecuteMsg::BroadcastTransfer {})?,
     });
     Ok(Response::new().add_message(broadcast_transfer_msg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    Ok(to_binary(&match msg {
+        QueryMsg::State => query_state(deps)?,
+    })?)
+}
+
+fn query_state(deps: Deps) -> StdResult<StateResponse> {
     let state = STATE.load(deps.storage)?;
-    to_binary(&state)
+
+    Ok(StateResponse { state })
 }
