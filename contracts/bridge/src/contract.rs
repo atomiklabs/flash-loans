@@ -15,7 +15,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     coin, has_coins, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Reply,
-    Response, StdResult, SubMsg, Uint128, WasmMsg,
+    Response, StdResult, SubMsg, WasmMsg,
 };
 use cw2::set_contract_version;
 
@@ -42,7 +42,9 @@ pub fn instantiate(
         deps.storage,
         &State {
             cw_gateway_contract_addr,
-            reentrancy_prevention_flag: false,
+            reentrancy_prevention_flag: msg.reentrancy_prevention_flag,
+            minimal_transfer_requirement: msg.minimal_transfer_requirement,
+            reply_on_mode: msg.reply_on_mode,
         },
     )?;
 
@@ -81,13 +83,20 @@ fn initiate_transfer(
         msg: to_binary(&ExecuteMsg::LockFunds {})?,
     });
 
-    STATE.update(deps.storage, |mut state: State| -> StdResult<_> {
-        state.reentrancy_prevention_flag = true;
+    let state = STATE.update(deps.storage, |mut state: State| -> StdResult<_> {
+        state.reentrancy_prevention_flag = 1;
 
         Ok(state)
     })?;
 
-    Ok(Response::new().add_submessage(SubMsg::reply_on_success(lock_funds_msg, 1)))
+    let submsg = SubMsg {
+        id: 1,
+        msg:lock_funds_msg,
+        reply_on: state.reply_on_mode,
+        gas_limit: None,
+    };
+
+    Ok(Response::new().add_submessage(submsg))
 }
 
 fn lock_funds(_deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
@@ -105,13 +114,21 @@ fn lock_funds(_deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, _env: Env, _msg: Reply) -> Result<Response, ContractError> {
-    return Ok(Response::default());
-    let state = STATE.load(deps.storage)?;
+    // let reentrancy_prevention_flag = match msg.result {
+    //     SubMsgResult::Ok(_) => 2,
+    //     SubMsgResult::Err(_) => 3,
+    // };
+
+    let state = STATE.update(deps.storage, |mut state: State| -> StdResult<_> {
+        state.reentrancy_prevention_flag = 2;
+
+        Ok(state)
+    })?;
 
     let broadcast_transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: state.cw_gateway_contract_addr.to_string(),
-        // funds: vec![coin(990, "uluna")],
-        funds: vec![],
+        funds: vec![coin(990, "uluna")],
+        // funds: vec![],
         msg: to_binary(&cw_gateway::msg::ExecuteMsg::BroadcastTransfer {})?,
     });
     Ok(Response::new().add_message(broadcast_transfer_msg))

@@ -2,16 +2,17 @@
 mod tests {
     use crate::helpers::CwBridgeContract;
     use crate::msg::InstantiateMsg;
-    use cosmwasm_std::{coin, Addr, Coin, Empty, Uint128};
-    use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor};
+    use cosmwasm_std::{coin, Addr, Coin, Empty, Uint128, ReplyOn};
     use cw_gateway;
+    use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor};
 
     pub fn cw_bridge_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             crate::contract::execute,
             crate::contract::instantiate,
             crate::contract::query,
-        ).with_reply(crate::contract::reply);
+        )
+        .with_reply(crate::contract::reply);
         Box::new(contract)
     }
 
@@ -44,11 +45,16 @@ mod tests {
         })
     }
 
-    fn proper_instantiate() -> (App, CwBridgeContract) {
+    fn proper_instantiate(
+        reentrancy_prevention_flag: u8,
+        minimal_transfer_requirement: Option<Coin>,
+        broadcast_fee: Option<Coin>,
+        reply_on_mode: ReplyOn,
+    ) -> (App, CwBridgeContract) {
         let mut app = mock_app();
 
         let cw_gateway_id = app.store_code(cw_gateway_contract());
-        let msg = cw_gateway::msg::InstantiateMsg { };
+        let msg = cw_gateway::msg::InstantiateMsg { broadcast_fee };
         let cw_gateway_contract_addr = app
             .instantiate_contract(
                 cw_gateway_id,
@@ -62,7 +68,12 @@ mod tests {
             .to_string();
 
         let cw_bridge_id = app.store_code(cw_bridge_contract());
-        let msg = InstantiateMsg { cw_gateway_contract_addr };
+        let msg = InstantiateMsg {
+            cw_gateway_contract_addr,
+            reentrancy_prevention_flag,
+            minimal_transfer_requirement,
+            reply_on_mode,
+        };
         let cw_bridge_contract_addr = app
             .instantiate_contract(
                 cw_bridge_id,
@@ -84,17 +95,25 @@ mod tests {
         use crate::{msg::ExecuteMsg, state::State};
 
         #[test]
-        fn initiate_transfer() {
-            let (mut app, cw_bridge_contract) = proper_instantiate();
+        fn initiate_transfer_when_locking_funds_submessage_fails() {
+            let (mut app, cw_bridge_contract) = proper_instantiate(
+                0, 
+                None,
+                None,
+                ReplyOn::Success,
+            );
 
             let msg = ExecuteMsg::InitiateTransfer {};
-            let funds = vec![
-                coin(1_000_000, "uluna"), // transfer subject
-            ];
+
+            let funds = vec![coin(10_000, "uluna")];
             let cosmos_msg = cw_bridge_contract.call(msg, Some(funds)).unwrap();
             let r = app.execute(Addr::unchecked(USER), cosmos_msg);
 
-            println!("YOOO {:?}", r);
+            if r.is_err() {
+                println!("InitiateTransfer Failed: {:?}", r);
+            }
+
+            assert!(r.is_ok());
 
             let r = app.wrap().query_all_balances(USER).unwrap();
             println!("USER coins {:?}", r);
@@ -105,12 +124,14 @@ mod tests {
             let r = app.wrap().query_all_balances("Contract #1").unwrap();
             println!("BRIDGE coins {:?}", r);
 
-            let s: State = app
+            let state: State = app
                 .wrap()
                 .query_wasm_smart("Contract #1", &crate::msg::QueryMsg::State)
                 .unwrap();
 
-            println!("BRIDGE state {:?}", s);
+            assert_eq!(state.reentrancy_prevention_flag, 2);
+
+            println!("BRIDGE state {:?}", state);
         }
     }
 }
