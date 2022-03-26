@@ -5,7 +5,6 @@ use cosmwasm_std::{
     WasmMsg, SubMsg, BankMsg, coin,
 };
 use cw2::set_contract_version;
-use cw_multi_test::Wasm;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -97,7 +96,7 @@ fn execute_on_flash_loan_provided(
     );
     let msgs = vec![SubMsg::new(BankMsg::Send {
         to_address: cw_gateway_contract_addr.into(),
-        amount: vec![coin(175_000_000 - 1, "uluna")],
+        amount: vec![coin(175_000_000, "uluna")],
     })];
 
     Ok(Response::new()

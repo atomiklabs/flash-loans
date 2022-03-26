@@ -149,7 +149,9 @@ fn reply_on_external_handler_completed(
     let state = STATE.load(deps.storage)?;
     let temp_state = TEMP_STATE.load(deps.storage)?;
 
-    assert!(luna_balance.amount >= temp_state.borrower_requested_asset.clone().amount);
+    if luna_balance.amount < temp_state.borrower_requested_asset.clone().amount {
+        return Err(ContractError::NotEnoughFundsToCoverFee);
+    }
 
     let repayment_amount_base = temp_state.borrower_requested_asset;
     let mut repayment_amount_base_2 = repayment_amount_base.clone();
