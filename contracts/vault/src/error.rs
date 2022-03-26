@@ -12,12 +12,6 @@ pub enum ContractError {
     #[error("Custom Error val: {val:?}")]
     CustomError{val: String},
 
-    #[error("Not enough funds to cover fee")]
-    NotEnoughFundsToCoverFee,
-
-    #[error("Not enough funds to cover loan repayment")]
-    NotEnoughFundsToCoverLoanRepayment,
-
     // Add any other custom errors you like here.
     // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
 }
