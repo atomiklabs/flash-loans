@@ -1,5 +1,5 @@
 [package]
-name = "cw-bridge"
+name = "cw-flash-loan-vault"
 version = "0.1.0"
 authors = ["tko"]
 edition = "2018"
@@ -29,7 +29,6 @@ cw2 = "0.13"
 schemars = "0.8"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0" }
-cw-gateway = { path = "../gateway", features = ["library"] }
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.0.0-beta6" }

@@ -1,5 +1,5 @@
 [package]
-name = "cw-flash-loan-gateway"
+name = "cw-flash-loan-borrower"
 version = "0.1.0"
 authors = ["tko"]
 edition = "2018"
@@ -24,13 +24,14 @@ library = []
 [dependencies]
 cosmwasm-std = { version = "1.0.0-beta6" }
 cosmwasm-storage = { version = "1.0.0-beta6" }
-cw-flash-loan-vault = { path = "../vault", features = ["library"] }
 cw-storage-plus = "0.13"
 cw2 = "0.13"
 schemars = "0.8"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0" }
+cw-flash-loan-gateway = { path = "../gateway", features = ["library"] }
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.0.0-beta6" }
+cw-flash-loan-vault = { path = "../vault", features = ["library"] }
 cw-multi-test = "0.13"
