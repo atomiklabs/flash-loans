@@ -5,7 +5,6 @@ use cosmwasm_std::{
     WasmMsg, SubMsg, BankMsg, coin,
 };
 use cw2::set_contract_version;
-use cw_multi_test::Wasm;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
