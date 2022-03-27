@@ -1,14 +1,17 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coin, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+    to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
 };
-use cw2::set_contract_version;
-use cw_flash_loan_gateway::helpers::Contract as FlashLoanGateway;
 
-use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{State, STATE};
+use cw2::set_contract_version;
+use cw_flash_loan_gateway::helpers::{Contract as FlashLoanGateway, RequestFlashLoanProps};
+
+use crate::{
+    error::ContractError,
+    msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
+    state::{Config, CONFIG},
+};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw-flash-loans-borrower";
@@ -25,9 +28,9 @@ pub fn instantiate(
 
     let cw_gateway_contract_addr = deps.api.addr_validate(&msg.cw_gateway_contract_addr)?;
 
-    STATE.save(
+    CONFIG.save(
         deps.storage,
-        &State {
+        &Config {
             cw_gateway_contract_addr,
         },
     )?;
@@ -49,53 +52,54 @@ pub fn execute(
         ExecuteMsg::OnFlashLoanProvided {} => execute_on_flash_loan_provided(deps, env, info),
     }
 }
+
+/// Handler initiating a flash loan
 fn exectute_open_flash_loan(
     deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     asset_to_borrow: Coin,
 ) -> Result<Response, ContractError> {
-    let State {
-        cw_gateway_contract_addr,
-    } = STATE.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
 
-    println!(
-        "[Borrower: exectute_open_flash_loan]: trying to borrow {:?}",
-        &asset_to_borrow
-    );
+    // This one tells the gateway about which message to execute while calling
+    // the borrower contract back with the flash-loaned funds.
+    let on_flash_loan_provided_hook = &ExecuteMsg::OnFlashLoanProvided {};
 
-    let msgs = vec![FlashLoanGateway(cw_gateway_contract_addr)
-        .request_flash_loan(asset_to_borrow, &ExecuteMsg::OnFlashLoanProvided {})?];
+    let msgs = vec![
+        FlashLoanGateway(config.cw_gateway_contract_addr).request_flash_loan(
+            RequestFlashLoanProps {
+                asset: asset_to_borrow,
+                on_flash_loan_provided_hook,
+            },
+        )?,
+    ];
 
     Ok(Response::new().add_messages(msgs))
 }
 
-/// Handler for executing any arbitrary message(s) with funds provided by the flash loan.
+/// Handler utilising the flash loan.
+/// Allows executing any set of arbitrary messages with funds provided by the flash loan.
 fn execute_on_flash_loan_provided(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,
 ) -> Result<Response, ContractError> {
-    let State {
-        cw_gateway_contract_addr,
-    } = STATE.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
 
-    let luna_balance = deps
-        .querier
-        .query_balance(env.contract.address.to_string(), "uluna")?;
+    // Money's in — time for swaps.
 
-    println!(
-        "[Borrower: on_flash_loan_provided]: total uluna balance = {:?}",
-        &luna_balance
-    );
+    let mut msgs: Vec<CosmosMsg> = vec![
+        // TODO: add any arbitrary messages to perform required transactions
+    ];
 
-    let mut msgs: Vec<CosmosMsg> = vec![];
+    // Repay the flash loan
+    let flash_loan_gateway = FlashLoanGateway(config.cw_gateway_contract_addr);
 
-    // TODO: add any arbitrary messages to perform required transactions
+    let total_repayment =
+        flash_loan_gateway.get_debt_remaining(&deps.querier, env.contract.address)?;
 
-    msgs.push(
-        FlashLoanGateway(cw_gateway_contract_addr).repay_flash_loan(coin(175_000_000, "uluna"))?,
-    );
+    msgs.push(flash_loan_gateway.repay_flash_loan(total_repayment)?);
 
     Ok(Response::new().add_messages(msgs))
 }

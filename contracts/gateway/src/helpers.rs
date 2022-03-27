@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{to_binary, Addr, BankMsg, Coin, CosmosMsg, StdResult, WasmMsg};
+use cosmwasm_std::{to_binary, Addr, BankMsg, Coin, CosmosMsg, StdResult, WasmMsg, QuerierWrapper};
 
-use crate::msg::ExecuteMsg;
+use crate::msg::{ExecuteMsg, QueryMsg};
 
 /// CwBridgeContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.
@@ -32,12 +32,11 @@ impl Contract {
     /// Creates a message calling the gatway to request a new flash loan
     pub fn request_flash_loan<Msg: Serialize>(
         &self,
-        asset: Coin,
-        on_flash_loan_provided_hook: &Msg,
+        request_flash_loan_props: RequestFlashLoanProps<Msg>,
     ) -> StdResult<CosmosMsg> {
         let request_flash_loan_msg = ExecuteMsg::RequestFlashLoan {
-            on_funded_msg: to_binary(&on_flash_loan_provided_hook)?,
-            asset,
+            asset: request_flash_loan_props.asset,
+            on_funded_msg: to_binary(&request_flash_loan_props.on_flash_loan_provided_hook)?,
         };
 
         self.call(request_flash_loan_msg, None)
@@ -51,4 +50,32 @@ impl Contract {
         }
         .into())
     }
+
+    /// Tells how much the borrower still owes to the gateway
+    pub fn get_debt_remaining(&self, querier: &QuerierWrapper, borrower: Addr) -> StdResult<Coin> {
+        let (total_repayment, _): (Coin, Coin) = querier.query_wasm_smart(
+            self.addr(),
+            &QueryMsg::DebtRemaining { borrower },
+        )?;
+
+        Ok(total_repayment)
+    }
+}
+
+pub struct RequestFlashLoanProps<'a, Msg: Serialize> {
+    /// The asset to be borrowed
+    pub asset: Coin,
+    /// The message to be called back when flash-borrowed funds are available
+    pub on_flash_loan_provided_hook: &'a Msg,
+}
+
+pub struct PayFlashLoanBackProps {
+    /// The asset to be returned
+    pub asset: Coin,
+}
+pub struct GetDebtRemainingProps<'a, Msg: Serialize> {
+    /// The asset to be borrowed
+    pub asset: Coin,
+    /// The message to be called back when flash-borrowed funds are available
+    pub on_flash_loan_provided_hook: &'a Msg,
 }

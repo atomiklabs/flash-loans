@@ -134,9 +134,9 @@ mod tests {
 
         #[test]
         fn borrower_request_flash_loan() {
-            let initial_vault_coins = coin(200_000_000_000, "uluna");
-            let initial_user_coins = coin(50_250, "uluna");
-            let expected_coin_to_borrow = coin(175_000_000, "uluna");
+            let initial_vault_coins = coin(200_000, "uluna");
+            let initial_user_coins = coin(50, "uluna");
+            let expected_coin_to_borrow = coin(1_000, "uluna");
 
             let (mut app, cw_borrower_contract, cw_vault_contract, cw_gateway_contract) =
                 proper_instantiate(ProperInstantiateProps {
@@ -162,7 +162,7 @@ mod tests {
                 .unwrap();
 
             let r = app.execute(cw_gateway_contract.addr(), cosmos_msg);
-            println!("Response: {:?}", &r);
+            // println!("Response: {:?}", &r);
 
             print_balances(
                 "End balances",
