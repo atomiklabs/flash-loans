@@ -1,10 +1,10 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-    WasmMsg, SubMsg, BankMsg, coin,
+    coin, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
 };
 use cw2::set_contract_version;
+use cw_flash_loan_gateway::helpers::Contract as FlashLoanGateway;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -59,24 +59,18 @@ fn exectute_open_flash_loan(
         cw_gateway_contract_addr,
     } = STATE.load(deps.storage)?;
 
-    println!("[Borrower: exectute_open_flash_loan]: trying to borrow {:?}", &asset_to_borrow);
+    println!(
+        "[Borrower: exectute_open_flash_loan]: trying to borrow {:?}",
+        &asset_to_borrow
+    );
 
-    let on_fundend_msg = ExecuteMsg::OnFlashLoanProvided {};
-
-    let request_flash_loan_msg = cw_flash_loan_gateway::msg::ExecuteMsg::RequestFlashLoan {
-        asset: asset_to_borrow,
-        on_funded_msg: to_binary(&on_fundend_msg)?,
-    };
-
-    let msgs = vec![CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: cw_gateway_contract_addr.to_string(),
-        funds: vec![],
-        msg: to_binary(&request_flash_loan_msg)?,
-    })];
+    let msgs = vec![FlashLoanGateway(cw_gateway_contract_addr)
+        .request_flash_loan(asset_to_borrow, &ExecuteMsg::OnFlashLoanProvided {})?];
 
     Ok(Response::new().add_messages(msgs))
 }
 
+/// Handler for executing any arbitrary message(s) with funds provided by the flash loan.
 fn execute_on_flash_loan_provided(
     deps: DepsMut,
     env: Env,
@@ -94,14 +88,16 @@ fn execute_on_flash_loan_provided(
         "[Borrower: on_flash_loan_provided]: total uluna balance = {:?}",
         &luna_balance
     );
-    let msgs = vec![SubMsg::new(BankMsg::Send {
-        to_address: cw_gateway_contract_addr.into(),
-        amount: vec![coin(175_000_000, "uluna")],
-    })];
 
-    Ok(Response::new()
-    .add_submessages(msgs)
-    )
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    // TODO: add any arbitrary messages to perform required transactions
+
+    msgs.push(
+        FlashLoanGateway(cw_gateway_contract_addr).repay_flash_loan(coin(175_000_000, "uluna"))?,
+    );
+
+    Ok(Response::new().add_messages(msgs))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
