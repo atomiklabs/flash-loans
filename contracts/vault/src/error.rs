@@ -9,6 +9,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Asset Unavailable")]
+    AssetUnavailable {},
+
     #[error("Custom Error val: {val:?}")]
     CustomError{val: String},
 

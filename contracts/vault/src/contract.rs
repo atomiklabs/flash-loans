@@ -33,9 +33,17 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::LendAsset { asset, borrower_addr } => {
-            assert_eq!(is_whitelisted_borrower_gateway(&info.sender), true);
-            assert_eq!(is_requested_asset_available(&asset), true);
+        ExecuteMsg::LendAsset {
+            asset,
+            borrower_addr,
+        } => {
+            if !is_whitelisted_borrower_gateway(&info.sender) {
+                return Err(ContractError::Unauthorized {});
+            }
+
+            if !is_requested_asset_available(&asset) {
+                return Err(ContractError::AssetUnavailable {});
+            }
 
             execute_lend_asset(deps, env, info, asset, borrower_addr)
         }
@@ -50,7 +58,12 @@ fn execute_lend_asset(
     borrower_addr: String,
 ) -> Result<Response, ContractError> {
     let borrower_addr = deps.api.addr_validate(borrower_addr.as_str())?;
-    println!("[Vault: execute_lend_asset] asset = {:?} | recepient = {:?}", &asset, &info.sender);
+
+    println!(
+        "[Vault: execute_lend_asset] asset = {:?} | recepient = {:?}",
+        &asset, &info.sender
+    );
+    
     let msgs = vec![SubMsg::new(BankMsg::Send {
         to_address: borrower_addr.into(),
         amount: vec![asset],
