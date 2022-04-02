@@ -112,6 +112,7 @@ fn execute_on_flash_loan_provided(
     if asset != flash_loan_state.borrower_requested_asset {
         return Err(ContractError::RequestedAssetNotProvided);
     }
+    
     let submsg =
     // secondly, send funds from gateway to the borrower
     SubMsg::reply_on_success(

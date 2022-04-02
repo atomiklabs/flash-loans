@@ -60,6 +60,11 @@ fn exectute_open_flash_loan(
     _info: MessageInfo,
     asset_to_borrow: Coin,
 ) -> Result<Response, ContractError> {
+    println!(
+        "[Borrower: exectute_open_flash_loan]: can I borrow this asset? {:?}",
+        &asset_to_borrow
+    );
+
     let config = CONFIG.load(deps.storage)?;
 
     // This one tells the gateway about which message to execute while calling
