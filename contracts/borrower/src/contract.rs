@@ -75,7 +75,10 @@ fn exectute_open_flash_loan(
         )?,
     ];
 
-    Ok(Response::new().add_messages(msgs))
+    Ok(Response::new().add_messages(msgs).add_attributes(vec![
+        ("module", "borrower"),
+        ("action", "execute_open_flash_loan"),
+    ]))
 }
 
 /// Handler utilising the flash loan.
@@ -89,6 +92,14 @@ fn execute_on_flash_loan_provided(
 
     // Money's in — time for swaps.
 
+    let available_luna = deps
+        .querier
+        .query_balance(env.contract.address.clone(), "uluna")?;
+    println!(
+        "[Borrower: execute_on_flash_loan_provided]: available uluna = {:?}",
+        available_luna
+    );
+
     let mut msgs: Vec<CosmosMsg> = vec![
         // TODO: add any arbitrary messages to perform required transactions
     ];
@@ -101,7 +112,10 @@ fn execute_on_flash_loan_provided(
 
     msgs.push(flash_loan_gateway.repay_flash_loan(total_repayment)?);
 
-    Ok(Response::new().add_messages(msgs))
+    Ok(Response::new().add_messages(msgs).add_attributes(vec![
+        ("module", "borrower"),
+        ("action", "execute_on_flash_loan_provided"),
+    ]))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

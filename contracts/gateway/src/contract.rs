@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -15,6 +13,8 @@ use crate::state::{Config, FlashLoanState, CONFIG, FLASH_LOAN_STATE};
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw-flash-loan-gateway";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const REPLY_ON_EXTERNAL_HANDLER_COMPLETED: u64 = 1;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -49,6 +49,7 @@ pub fn execute(
             asset,
             on_funded_msg,
         } => execute_request_flash_loan(deps, env, info, asset, on_funded_msg),
+        ExecuteMsg::FlashLoanProvided { asset } => execute_on_flash_loan_provided(deps, env, asset),
     }
 }
 
@@ -76,26 +77,56 @@ fn execute_request_flash_loan(
 
     FLASH_LOAN_STATE.save(deps.storage, &flash_loan_state)?;
 
-    let lend_asset_msg = cw_flash_loan_vault::msg::ExecuteMsg::LendAsset {
+    // firstly, request funds from vault
+    let provide_asset_msg = cw_flash_loan_vault::msg::ExecuteMsg::ProvideAsset {
         asset,
         borrower_addr: flash_loan_state.borrower_contract_addr.to_string(),
     };
 
-    let msgs = vec![
-        // firstly, request funds from vault
-        SubMsg::reply_on_success(
-            WasmMsg::Execute {
-                contract_addr: cw_vault_contract_addr.to_string(),
-                funds: vec![],
-                msg: to_binary(&lend_asset_msg)?,
-            },
-            ReplyToGateway::OnLendAssetCompleted as u64,
-        ),
-    ];
+    let msg = WasmMsg::Execute {
+        contract_addr: cw_vault_contract_addr.to_string(),
+        funds: vec![],
+        msg: to_binary(&provide_asset_msg)?,
+    };
 
-    Ok(Response::new()
-        .add_submessages(msgs)
-        .add_attribute("method", "request_flash_loan"))
+    // We'll expect the response being provided by the vault by calling FlashLoanProvided msg
+
+    Ok(Response::new().add_message(msg).add_attributes(vec![
+        ("module", "gateway"),
+        ("action", "execute_request_flash_loan"),
+    ]))
+}
+
+fn execute_on_flash_loan_provided(
+    deps: DepsMut,
+    _env: Env,
+    asset: Coin,
+) -> Result<Response, ContractError> {
+    println!(
+        "[Gateway: execute_on_flash_loan_provided]: vault has granted the loan {:?}",
+        &asset
+    );
+
+    let flash_loan_state = FLASH_LOAN_STATE.load(deps.storage)?;
+
+    if asset != flash_loan_state.borrower_requested_asset {
+        return Err(ContractError::RequestedAssetNotProvided);
+    }
+    let submsg =
+    // secondly, send funds from gateway to the borrower
+    SubMsg::reply_on_success(
+        WasmMsg::Execute {
+            contract_addr: flash_loan_state.borrower_contract_addr.to_string(),
+            funds: vec![],
+            msg: flash_loan_state.on_funded_msg,
+        },
+        REPLY_ON_EXTERNAL_HANDLER_COMPLETED
+    );
+
+    Ok(Response::new().add_submessage(submsg).add_attributes(vec![
+        ("module", "gateway"),
+        ("action", "execute_on_flash_loan_provided"),
+    ]))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -106,37 +137,13 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
         }));
     }
 
-    match ReplyToGateway::try_from(msg.id) {
-        Ok(ReplyToGateway::OnLendAssetCompleted) => reply_on_lend_asset_completed(deps, env),
-        Ok(ReplyToGateway::OnExternalHandlerCompleted) => {
-            reply_on_external_handler_completed(deps, env)
-        }
+    match msg.id {
+        REPLY_ON_EXTERNAL_HANDLER_COMPLETED => reply_on_external_handler_completed(deps, env),
         _ => Err(ContractError::Std(StdError::GenericErr {
             msg: format!("reply id `{:?}` is invalid", msg.id),
         })),
     }
 }
-
-fn reply_on_lend_asset_completed(deps: DepsMut, _env: Env) -> Result<Response, ContractError> {
-    let temp_state = FLASH_LOAN_STATE.load(deps.storage)?;
-
-    let msgs = vec![
-        // secondly, send funds from gateway to the borrower
-        SubMsg::reply_on_success(
-            WasmMsg::Execute {
-                contract_addr: temp_state.borrower_contract_addr.to_string(),
-                funds: vec![],
-                msg: temp_state.on_funded_msg,
-            },
-            ReplyToGateway::OnExternalHandlerCompleted as u64,
-        ),
-    ];
-
-    Ok(Response::new()
-        .add_submessages(msgs)
-        .add_attribute("method", "on_lend_assets_completed"))
-}
-
 fn reply_on_external_handler_completed(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let flash_loan_state = FLASH_LOAN_STATE.load(deps.storage)?;
@@ -181,9 +188,10 @@ fn reply_on_external_handler_completed(deps: DepsMut, env: Env) -> Result<Respon
 
     FLASH_LOAN_STATE.remove(deps.storage);
 
-    Ok(Response::new()
-        .add_submessages(msgs)
-        .add_attribute("method", "on_external_handler_completed"))
+    Ok(Response::new().add_submessages(msgs).add_attributes(vec![
+        ("module", "gateway"),
+        ("action", "reply_on_external_handler_completed"),
+    ]))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -238,23 +246,4 @@ fn calculate_debt_remaining(
             repayment_amount_base.denom.as_str(),
         ),
     ))
-}
-
-enum ReplyToGateway {
-    OnLendAssetCompleted = 1,
-    OnExternalHandlerCompleted = 2,
-}
-
-impl TryFrom<u64> for ReplyToGateway {
-    type Error = ();
-
-    fn try_from(v: u64) -> Result<Self, Self::Error> {
-        match v {
-            x if x == Self::OnLendAssetCompleted as u64 => Ok(Self::OnLendAssetCompleted),
-            x if x == Self::OnExternalHandlerCompleted as u64 => {
-                Ok(Self::OnExternalHandlerCompleted)
-            }
-            _ => Err(()),
-        }
-    }
 }

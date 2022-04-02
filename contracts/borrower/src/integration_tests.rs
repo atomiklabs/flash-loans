@@ -33,7 +33,9 @@ mod tests {
             cw_flash_loan_vault::contract::execute,
             cw_flash_loan_vault::contract::instantiate,
             cw_flash_loan_vault::contract::query,
-        );
+        )
+        .with_reply(cw_flash_loan_vault::contract::reply);
+
         Box::new(contract)
     }
 
@@ -143,7 +145,7 @@ mod tests {
                     initial_vault_coins: initial_vault_coins.clone(),
                     initial_user_coins: initial_user_coins.clone(),
                 });
-            
+
             print_balances(
                 "Initial balances",
                 &app,
@@ -161,8 +163,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let r = app.execute(cw_gateway_contract.addr(), cosmos_msg);
-            // println!("Response: {:?}", &r);
+            let flash_loan_result = app.execute(cw_gateway_contract.addr(), cosmos_msg);
 
             print_balances(
                 "End balances",
@@ -172,21 +173,11 @@ mod tests {
                 &cw_vault_contract,
             );
 
-            // assert!(r.is_ok());
+            if flash_loan_result.is_err() {
+                println!("Response: {:?}", &flash_loan_result);
+            }
 
-            // assert_eq!(
-            //     bridge_coins.get(0).unwrap().amount,
-            //     expected_coin_to_transfer.amount - expected_broadcast_fee.amount,
-            //     "bridge locked transferred assets MINUS the broadcast fee on the Gateway"
-            // );
-
-            // let state_resposnse: StateResponse = app
-            //     .wrap()
-            //     .query_wasm_smart(&cw_bridge_contract.addr(), &crate::msg::QueryMsg::State)
-            //     .unwrap();
-            // let state = state_resposnse.state;
-
-            // assert_eq!(state.reentrancy_prevention_flag, 2);
+            assert!(flash_loan_result.is_ok());
         }
 
         fn print_balances(
@@ -216,78 +207,6 @@ mod tests {
                 .unwrap();
 
             println!("[{}]: Vault = {:?}", label, &vault_coins);
-        }
-
-        #[test]
-        fn gateway_requests_funds_from_vault() {
-            let initial_vault_coins = coin(200_000_000_000, "uluna");
-            let initial_user_coins = coin(50_250, "uluna");
-            let expected_coin_to_borrow = coin(175_000_000, "uluna");
-
-            let (mut app, _cw_borrower_contract, cw_vault_contract, cw_gateway_contract) =
-                proper_instantiate(ProperInstantiateProps {
-                    initial_vault_coins: initial_vault_coins.clone(),
-                    initial_user_coins: initial_user_coins.clone(),
-                });
-
-            let cosmos_msg = cw_vault_contract
-                .call(
-                    cw_flash_loan_vault::msg::ExecuteMsg::LendAsset {
-                        asset: expected_coin_to_borrow.clone(),
-                        borrower_addr: String::from(USER),
-                    },
-                    None,
-                )
-                .unwrap();
-
-            let _r = app.execute(cw_gateway_contract.addr(), cosmos_msg);
-            // println!("Response: {:?}", &r);
-
-            // assert!(r.is_ok());
-
-            let user_coins = app.wrap().query_all_balances(USER).unwrap();
-
-            println!("User coins: {:?}", &user_coins);
-
-            // assert_eq!(
-            //     user_coins.get(0).unwrap().amount,
-            //     initial_user_coins.amount - expected_coin_to_transfer.amount,
-            //     "gatway charged the broadcast fee"
-            // );
-
-            let gateway_coins = app
-                .wrap()
-                .query_all_balances(&cw_gateway_contract.addr())
-                .unwrap();
-
-            println!("Gateway coins: {:?}", &gateway_coins);
-
-            // assert_eq!(
-            //     gateway_coins.get(0).unwrap().amount,
-            //     expected_broadcast_fee.amount,
-            //     "gatway charged the broadcast fee"
-            // );
-
-            let vault = app
-                .wrap()
-                .query_all_balances(&cw_vault_contract.addr())
-                .unwrap();
-
-            println!("Vault coins: {:?}", &vault);
-
-            // assert_eq!(
-            //     bridge_coins.get(0).unwrap().amount,
-            //     expected_coin_to_transfer.amount - expected_broadcast_fee.amount,
-            //     "bridge locked transferred assets MINUS the broadcast fee on the Gateway"
-            // );
-
-            // let state_resposnse: StateResponse = app
-            //     .wrap()
-            //     .query_wasm_smart(&cw_bridge_contract.addr(), &crate::msg::QueryMsg::State)
-            //     .unwrap();
-            // let state = state_resposnse.state;
-
-            // assert_eq!(state.reentrancy_prevention_flag, 2);
         }
     }
 }

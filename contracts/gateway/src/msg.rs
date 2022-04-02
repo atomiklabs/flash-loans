@@ -13,6 +13,7 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     RequestFlashLoan { asset: Coin, on_funded_msg: Binary },
+    FlashLoanProvided { asset: Coin },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

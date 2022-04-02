@@ -1,17 +1,19 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-    SubMsg,
+    to_binary, wasm_execute, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Reply,
+    Response, StdError, StdResult, SubMsg,
 };
 use cw2::set_contract_version;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{BroadcastMsg, ExecuteMsg, InstantiateMsg, QueryMsg};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cw-flash-loan-vault";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const REPLY_ON_ASSET_REPAYMENT: u64 = 1;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -33,7 +35,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::LendAsset {
+        ExecuteMsg::ProvideAsset {
             asset,
             borrower_addr,
         } => {
@@ -45,12 +47,12 @@ pub fn execute(
                 return Err(ContractError::AssetUnavailable {});
             }
 
-            execute_lend_asset(deps, env, info, asset, borrower_addr)
+            execute_provide_asset(deps, env, info, asset, borrower_addr)
         }
     }
 }
 
-fn execute_lend_asset(
+fn execute_provide_asset(
     deps: DepsMut,
     _env: Env,
     info: MessageInfo,
@@ -60,18 +62,34 @@ fn execute_lend_asset(
     let borrower_addr = deps.api.addr_validate(borrower_addr.as_str())?;
 
     println!(
-        "[Vault: execute_lend_asset] asset = {:?} | recepient = {:?}",
-        &asset, &info.sender
+        "[Vault: execute_provide_asset] asset = {:?} | recepient = {:?}",
+        &asset, &borrower_addr
     );
-    
-    let msgs = vec![SubMsg::new(BankMsg::Send {
-        to_address: borrower_addr.into(),
-        amount: vec![asset],
-    })];
+
+    let msgs = vec![
+        // let's have the flash loan sent to the borrower
+        SubMsg::new(BankMsg::Send {
+            to_address: borrower_addr.clone().into(),
+            amount: vec![asset.clone()],
+        }),
+        SubMsg::reply_on_success(
+            wasm_execute(
+                info.sender,
+                // call the sender (the vault) back to let it know the funds were sent to the borrower
+                // TODO: extract the message into a package so it could be shared between the gateway and the vault
+                &BroadcastMsg::FlashLoanProvided {
+                    asset,
+                    borrower_addr: borrower_addr.into(),
+                },
+                vec![],
+            )?,
+            REPLY_ON_ASSET_REPAYMENT,
+        ),
+    ];
 
     Ok(Response::new()
         .add_submessages(msgs)
-        .add_attribute("method", "lend"))
+        .add_attributes(vec![("module", "vault"), ("action", "execute_provide_asset")]))
 }
 
 /// Is provided address is on the borrower gatway whitelist?
@@ -82,6 +100,33 @@ fn is_whitelisted_borrower_gateway(_address: &Addr) -> bool {
 /// Is the requested asset available for lending?
 fn is_requested_asset_available(_requested_asset: &Coin) -> bool {
     true
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
+    if msg.result.is_err() {
+        return Err(ContractError::Std(StdError::GenericErr {
+            msg: msg.result.unwrap_err(),
+        }));
+    }
+
+    match msg.id {
+        REPLY_ON_ASSET_REPAYMENT => reply_on_asset_repayment(deps, env),
+        _ => Err(ContractError::Std(StdError::GenericErr {
+            msg: format!("reply id `{:?}` is invalid", msg.id),
+        })),
+    }
+}
+
+fn reply_on_asset_repayment(_deps: DepsMut, _env: Env) -> Result<Response, ContractError> {
+    // TODO: validate repayment
+    println!("[Vault: reply_on_asset_repayment] TODO: validate repayment");
+    // if this handler fails, the whole trasaction will be reverted
+
+    Ok(Response::new().add_attributes(vec![
+        ("module", "vault"),
+        ("action", "reply_on_asset_repayment"),
+    ]))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -129,7 +174,7 @@ mod tests {
 
         let borrower = String::from("borrower");
         let asset_to_borrow = coin(20_000_000, "uluna");
-        let msg = ExecuteMsg::LendAsset {
+        let msg = ExecuteMsg::ProvideAsset {
             asset: asset_to_borrow.clone(),
             borrower_addr: borrower.clone(),
         };
@@ -144,8 +189,9 @@ mod tests {
         );
 
         let response = result.unwrap();
-        assert_eq!(1, response.messages.len());
-        assert_eq!(("method", "lend"), response.attributes[0]);
+        assert_eq!(2, response.messages.len());
+        assert_eq!(("module", "vault"), response.attributes[0]);
+        assert_eq!(("action", "execute_provide_asset"), response.attributes[1]);
         assert_eq!(
             response.messages[0],
             SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
